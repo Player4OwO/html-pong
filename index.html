@@ -1,0 +1,478 @@
+<!-- 
+ - Fun page to play pong... I guess.
+ - Use arrow keys or buttons to control the left bat.
+ - @author Player4
+ - @date 22.01.2024
+-->
+<!DOCTYPE html>
+<html>
+    <head>
+        <style>
+
+.non-interactive {
+    user-drag: none;
+    -webkit-user-drag: none;
+    user-select: none;
+    -moz-user-select: none;
+    -webkit-user-select: none;
+    -ms-user-select: none;
+}
+
+#body {
+    margin: 10px;
+    padding: 0px;
+    height: calc(100vh - (2 * (10px)));
+    min-width: 200px;
+    min-height: 200px;
+}
+
+#mainContainer {
+    width: 100%;
+    height: 100%;
+
+    display: flex;
+    flex-direction: column;
+}
+
+#buttonContainer {
+    padding: 20px;
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    align-content: center;
+    gap: 20px;
+}
+
+#buttonContainer > button {
+    height: 50px;
+    width: 50px;
+}
+
+#buttonContainer > button > img {
+    height: 100%;
+    width: 100%;
+}
+
+#fieldContainer {
+    border:2px solid black;
+    width: 100%;
+    height: 1px;
+
+    flex-grow: 1;
+}
+
+#wrapper {
+    width: 100%;
+    height: 100%;
+}
+
+#canvas {
+    width: 100%;
+    height: 100%;
+}
+
+        </style>
+    </head>
+
+    <body id="body" class="non-interactive">
+        <div id="mainContainer" class="non-interactive">
+            <div id="buttonContainer" class="non-interactive">
+                <button id="buttonUp"><img class="non-interactive" src="https://raw.githubusercontent.com/Player4OwO/html-pong/main/images/arrow_up.png"></button>
+                <button id="buttonDown"><img class="non-interactive" src="https://raw.githubusercontent.com/Player4OwO/html-pong/main/images/arrow_down.png"></button>
+            </div>
+            <div id="fieldContainer" class="non-interactive">
+                <div id="wrapper" class="non-interactive">
+                    <canvas id="canvas" class="non-interactive"/>
+                </div>
+            </div>
+        </div>
+        <script>
+
+////////// GLOBAL DATA ///////////////////////////////////////////////////////////////////////////
+
+const wrapper    = document.getElementById("wrapper");
+const canvas     = document.getElementById("canvas");
+const buttonUp   = document.getElementById("buttonUp");
+const buttonDown = document.getElementById("buttonDown");
+
+const fixedInterval = 1.0 / 100;
+
+const minBallAngleDegree  = 30;
+const minBallAngleRadians = minBallAngleDegree * 2 * Math.PI / 360;
+
+const ballStartSpeed = 150
+const ballSpeedGain  = 70
+
+const playerIndices = {
+    player: 0,
+    bot:    1,
+};
+
+const batSpeed = 250;
+const batMargins = 20;
+
+const backgroundColor = "white";
+const ballColors = ["red", "blue", "green", "yellow", "purple", "orange", "teal"];
+
+let ball = {
+    position : {
+        x: 0,
+        y: 0,
+    },
+    size : {
+        w: 0,
+        h: 0,
+    },
+    speed : {
+        x: 0,
+        y: 0,
+    },
+    colorIdx : 0,
+};
+
+let players = [
+    {
+        bat: {
+            position: {
+                x: 0,
+                y: 0,
+            },
+            size: {
+                w: 0,
+                h: 0,
+            },
+            speed: 0,
+        }
+    },
+    {
+        bat: {
+            position: {
+                x: 0,
+                y: 0,
+            },
+            size: {
+                w: 0,
+                h: 0,
+            },
+            speed: 0,
+        }
+    }
+];
+
+let userInput = {
+    up: false,
+    down: false,
+};
+
+////////// FUNCTIONS /////////////////////////////////////////////////////////////////////////////
+
+function isBallAngleValid(angle) {
+    return !(angle < (    Math.PI / 2) + minBallAngleRadians && 
+             angle > (    Math.PI / 2) - minBallAngleRadians) &&
+           !(angle < (3 * Math.PI / 2) + minBallAngleRadians && 
+             angle > (3 * Math.PI / 2) - minBallAngleRadians)
+}
+
+/** Returns the magnitude of a 2D vector. */
+function getMagnitude(vector) {
+    return Math.sqrt((vector.x * vector.x) + (vector.y * vector.y));
+};
+
+/** Takes a normalised non-null 2D vector and returns its angle (radians). */
+function getAngle(vector) {
+    return vector.y >= 0 ? Math.acos(vector.x) : (2 * Math.PI - Math.acos(vector.x));
+};
+
+/** Takes the angle (radians) and stores a normalized 2D vector with that angle in given argument. */
+function getNormalisedVectorFromAngle(vector, angle) {
+    vector.x = Math.cos(angle);
+    vector.y = Math.sin(angle);
+};
+
+/** Takes the 2D vector and multiplies x and y with given scalar. */
+function getScaledVector(vector, scale) {
+    vector.x *= scale;
+    vector.y *= scale;
+};
+
+/** Takes the non-null 2D vector and normalises it. */
+function getNormalisedVector(vector) {
+    magnitude = getMagnitude(vector);
+    getScaledVector(vector, 1.0 / magnitude);
+};
+
+/** Calculates and returns the difference vector of given 2D vectors. */
+function getSubtractedVectorCopy(vectorMinuend, vectorSubtrahend) {
+    return {
+        x: vectorMinuend.x - vectorSubtrahend.x,
+        y: vectorMinuend.y - vectorSubtrahend.y,
+    }
+};
+
+function getCenter(rect) {
+    return {
+        x: rect.position.x + rect.size.w / 2,
+        y: rect.position.y + rect.size.h / 2,
+    }
+};
+
+function rollBallColor() {
+    newIndex = Math.floor(Math.random() * (ballColors.length - 1))
+    if (newIndex == ball.colorIdx) {
+        newIndex = ballColors.length - 1;
+    }
+    ball.colorIdx = newIndex;
+}
+
+function resetBall() {
+    ball.position.x = (canvas.width  - ball.size.w) / 2.0;
+    ball.position.y = (canvas.height - ball.size.h) / 2.0;
+
+    ballAngle = 0;
+    do {
+        ballAngle = Math.random() * 2 * Math.PI;
+    } while (!isBallAngleValid(ballAngle));
+
+    getNormalisedVectorFromAngle(ball.speed, ballAngle);
+    getScaledVector(ball.speed, ballStartSpeed);
+    
+    rollBallColor();
+};
+
+function initData() {
+    ball.size.w = 20;
+    ball.size.h = 20;
+    resetBall();
+
+    players[0].bat.position.x = batMargins;
+    players[1].bat.position.x = canvas.width - batMargins - players[1].bat.size.w;
+
+    for (let i = 0; i < players.length; i++) {
+        players[i].bat.size.w = 15;
+        players[i].bat.size.h = 80;
+        players[i].bat.position.y = (canvas.height - players[i].bat.size.h) / 2.0;
+    }
+};
+
+function onKeyDown(keyboardEvent) {
+    if      (keyboardEvent.key == "ArrowUp")   { userInput.up   = true; }
+    else if (keyboardEvent.key == "ArrowDown") { userInput.down = true; }
+};
+
+function onKeyUp(keyboardEvent) {
+    if      (keyboardEvent.key == "ArrowUp")   { userInput.up   = false; }
+    else if (keyboardEvent.key == "ArrowDown") { userInput.down = false; }
+};
+
+function onUpButtonDown()   { userInput.up   = true; }
+function onUpButtonUp()     { userInput.up   = false; }
+function onDownButtonDown() { userInput.down = true; }
+function onDownButtonUp()   { userInput.down = false; }
+function onMouseUpGlobal()  { onUpButtonUp(); onDownButtonUp(); }
+
+function processInput() {
+    if (userInput.up && !userInput.down) {
+        players[playerIndices.player].bat.speed = -batSpeed;
+    }
+    else if (userInput.down && !userInput.up) {
+        players[playerIndices.player].bat.speed = batSpeed;
+    }
+    else {
+        players[playerIndices.player].bat.speed = 0;
+    }
+};
+
+function processBotInput() {
+    const tolerance     = 20;
+    const stopTolerance = 5;
+
+    ballCenterY = ball.position.y + ball.size.h / 2.0;
+
+    batCenterY  = players[playerIndices.bot].bat.position.y + 
+                  players[playerIndices.bot].bat.size.h / 2.0;
+
+    if (ballCenterY < batCenterY - tolerance) {
+        players[playerIndices.bot].bat.speed = -batSpeed;
+    }
+    else if (ballCenterY > batCenterY + tolerance) {
+        players[playerIndices.bot].bat.speed = batSpeed;
+    }
+    else if (Math.abs(ballCenterY - batCenterY) < stopTolerance) {
+        players[playerIndices.bot].bat.speed = 0;
+    }
+};
+
+function moveObjects(interval) {
+    ball.position.x += ball.speed.x * interval;
+    ball.position.y += ball.speed.y * interval;
+
+    players[0].bat.position.y += players[0].bat.speed * interval;
+    players[1].bat.position.y += players[1].bat.speed * interval;
+};
+
+function adjustBats() {
+    players[0].bat.position.x = batMargins;
+    players[1].bat.position.x = canvas.width - batMargins - players[1].bat.size.w;
+
+    for (let i = 0; i < players.length; i++) {
+        if (players[i].bat.position.y < 0) {
+            players[i].bat.position.y = 0;
+        }
+        else if (players[i].bat.position.y + players[i].bat.size.h > canvas.height) {
+            players[i].bat.position.y = canvas.height - players[i].bat.size.h;
+        }
+    }
+};
+
+function checkCollisionRects(rect1, rect2) {
+    return rect1.position.x < rect2.position.x + rect2.size.w &&
+           rect2.position.x < rect1.position.x + rect1.size.w &&
+           rect1.position.y < rect2.position.y + rect2.size.h &&
+           rect2.position.y < rect1.position.y + rect1.size.h;
+};
+
+function handleBallCollision() {
+    // TODO do something about the duplicate code here
+    // Ignore collisions if the ball goes into the wrong direction
+    if (ball.speed.x < 0 && checkCollisionRects(ball, players[0].bat)) {
+        centerBall = getCenter(ball);
+        centerBat  = getCenter(players[0].bat);
+        vectorDiff = getSubtractedVectorCopy(centerBall, centerBat);
+        vectorDiff.y /= players[0].bat.size.h / players[0].bat.size.w;
+        getNormalisedVector(vectorDiff);
+        angle = (vectorDiff.x == 0 && vectorDiff.y == 0) ? 0 : getAngle(vectorDiff);
+
+        if (angle <= Math.PI && angle > (Math.PI / 2) - minBallAngleRadians) {
+            angle = (Math.PI / 2) - minBallAngleRadians;
+        }
+        else if (angle > Math.PI && angle < (3 * Math.PI / 2) + minBallAngleRadians) {
+            angle = (3 * Math.PI / 2) + minBallAngleRadians;
+        }
+
+        velocity = getMagnitude(ball.speed);
+
+        getNormalisedVectorFromAngle(ball.speed, angle);
+        getScaledVector(ball.speed, velocity + ballSpeedGain);
+
+        rollBallColor();
+
+        return;
+    }
+
+    // Ignore collisions if the ball goes into the wrong direction
+    if (ball.speed.x > 0 && checkCollisionRects(ball, players[1].bat)) {
+        centerBall = getCenter(ball);
+        centerBat  = getCenter(players[1].bat);
+        vectorDiff = getSubtractedVectorCopy(centerBall, centerBat);
+        vectorDiff.y /= players[1].bat.size.h / players[1].bat.size.w;
+        getNormalisedVector(vectorDiff);
+        angle = (vectorDiff.x == 0 && vectorDiff.y == 0) ? Math.PI : getAngle(vectorDiff);
+
+        if (angle < (Math.PI / 2) + minBallAngleRadians) {
+            angle = (Math.PI / 2) + minBallAngleRadians;
+        }
+        else if (angle > (3 * Math.PI / 2) - minBallAngleRadians) {
+            angle = (3 * Math.PI / 2) - minBallAngleRadians;
+        }
+
+        velocity = getMagnitude(ball.speed);
+
+        getNormalisedVectorFromAngle(ball.speed, angle);
+        getScaledVector(ball.speed, velocity + ballSpeedGain);
+
+        rollBallColor();
+
+        return;
+    }
+
+    if (ball.position.x < 0) {
+        resetBall();
+        return;
+    }
+
+    if (ball.position.x + ball.size.w > canvas.width) {
+        resetBall();
+        return;
+    }
+
+    if (ball.position.y < 0) {
+        ball.position.y = 0;
+        ball.speed.y = -ball.speed.y;
+        return;
+    }
+
+    if (ball.position.y + ball.size.h > canvas.height) {
+        ball.position.y = canvas.height - ball.size.h;
+        ball.speed.y = -ball.speed.y;
+        return;
+    }
+};
+
+function resizeCanvas() {
+    wrapperSize = window.getComputedStyle(wrapper);
+
+    canvas.setAttribute("width",  wrapperSize.width);
+    canvas.setAttribute("height", wrapperSize.height);
+};
+
+function drawRect(context, color, position, size) {
+    context.fillStyle = color;
+    context.fillRect(position.x, position.y, size.w, size.h);
+    context.stroke();
+};
+
+function clearCanvas(context) {
+    drawRect(context, backgroundColor, {x: 0, y: 0}, {w: canvas.width, h: canvas.height});
+};
+
+function update() {
+    processInput();
+    processBotInput();
+
+    resizeCanvas();
+
+    const context = canvas.getContext("2d");
+
+    interval = 1.0 / 60;
+
+    while (interval > fixedInterval) {
+        interval -= fixedInterval;
+
+        moveObjects(fixedInterval);
+        adjustBats();
+        handleBallCollision();
+    }
+
+    moveObjects(interval);
+    adjustBats();
+    handleBallCollision();
+    
+    clearCanvas(context);
+
+    drawRect(context, ballColors[ball.colorIdx], ball.position, ball.size);
+    drawRect(context, "black", players[0].bat.position, players[0].bat.size);
+    drawRect(context, "black", players[1].bat.position, players[1].bat.size);
+    
+    requestAnimationFrame(update);
+};
+
+////////// "MAIN" ////////////////////////////////////////////////////////////////////////////////
+
+wrapperSize = window.getComputedStyle(wrapper);
+
+canvas.setAttribute("width",  wrapperSize.width);
+canvas.setAttribute("height", wrapperSize.height);
+
+initData();
+requestAnimationFrame(update);
+document.addEventListener("keydown", onKeyDown);
+document.addEventListener("keyup",   onKeyUp);
+buttonUp.onmousedown   = onUpButtonDown;
+buttonUp.onmouseup     = onUpButtonUp;
+buttonDown.onmousedown = onDownButtonDown;
+buttonDown.onmouseup   = onDownButtonUp;
+document.onmouseup     = onMouseUpGlobal;
+
+        </script>
+    </body>
+</html>
